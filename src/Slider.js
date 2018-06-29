@@ -11,7 +11,7 @@ import {
   PanResponder,
   View,
   Easing,
-  ViewPropTypes
+  ViewPropTypes,
 } from "react-native";
 
 import PropTypes from 'prop-types';
@@ -149,7 +149,7 @@ export default class Slider extends PureComponent {
     thumbImage: Image.propTypes.source,
 
     /**
-    * Sets an image for the thumb.
+    * Sets an element for the thumb.
     */
    thumbElement: PropTypes.element,
 
@@ -172,6 +172,27 @@ export default class Slider extends PureComponent {
      * Used to configure the animation parameters.  These are the same parameters in the Animated library.
      */
     animationConfig : PropTypes.object,
+
+
+    /**
+     * The number of markes across the tracker
+     */
+    numOfMarkers: PropTypes.number,
+
+    /**
+     * The style applied to the markers.
+     */
+    markerStyle: ViewPropTypes.style,
+
+    /**
+     * Callback called when the user presses a marker. It returns the marker's index.
+     */
+    onMarkerPress: PropTypes.func,
+
+    /**
+     * Callback called when markers are set and user slides the thumb. Returns the rounded number.
+     */
+    onMarkerChange: PropTypes.func,
   };
 
   static defaultProps = {
@@ -184,7 +205,8 @@ export default class Slider extends PureComponent {
     thumbTintColor: '#343434',
     thumbTouchSize: {width: 40, height: 40},
     debugTouchArea: false,
-    animationType: 'timing'
+    animationType: 'timing',
+    numOfMarkers: 0
   };
 
   state = {
@@ -196,6 +218,13 @@ export default class Slider extends PureComponent {
   };
 
   componentWillMount() {
+    let { minimumValue, maximumValue} = this.props;
+    if (this.props.numOfMarkers > 1) {
+      minimumValue = 0;
+      maximumValue = this.props.numOfMarkers - 1;
+    }
+    this.setState({ minimumValue, maximumValue })
+
     this._panResponder = PanResponder.create({
       onStartShouldSetPanResponder: this._handleStartShouldSetPanResponder,
       onMoveShouldSetPanResponder: this._handleMoveShouldSetPanResponder,
@@ -222,8 +251,6 @@ export default class Slider extends PureComponent {
 
   render() {
     var {
-      minimumValue,
-      maximumValue,
       minimumTrackTintColor,
       maximumTrackTintColor,
       thumbTintColor,
@@ -238,9 +265,12 @@ export default class Slider extends PureComponent {
       thumbTouchSize,
       animationType,
       animateTransitions,
+      numOfMarkers,
+      markerStyle,
+      onMarkerPress,
       ...other
     } = this.props;
-    var {value, containerSize, trackSize, thumbSize, allMeasured} = this.state;
+    var {value, containerSize, trackSize, thumbSize, allMeasured, minimumValue, maximumValue} = this.state;
     var mainStyles = styles || defaultStyles;
     var thumbLeft = value.interpolate({
       inputRange: [minimumValue, maximumValue],
@@ -256,20 +286,27 @@ export default class Slider extends PureComponent {
       position: 'absolute',
       width: Animated.add(thumbLeft, thumbSize.width / 2),
       backgroundColor: minimumTrackTintColor,
+      marginLeft: numOfMarkers > 1 ? thumbSize.width / 2 : 0,
       ...valueVisibleStyle
     };
+
+    const trackMargins = {
+      marginLeft: numOfMarkers > 1 ? thumbSize.width / 2 : 0,
+      marginRight: numOfMarkers > 1 ? thumbSize.width / 2 : 0,
+    }
 
     var touchOverflowStyle = this._getTouchOverflowStyle();
 
     return (
       <View {...other} style={[mainStyles.container, style]} onLayout={this._measureContainer}>
         <View
-          style={[{backgroundColor: maximumTrackTintColor,}, mainStyles.track, trackStyle]}
+          style={[{backgroundColor: maximumTrackTintColor,}, mainStyles.track, trackMargins, trackStyle]}
           renderToHardwareTextureAndroid={true}
           onLayout={this._measureTrack} />
         <Animated.View
           renderToHardwareTextureAndroid={true}
           style={[mainStyles.track, trackStyle, minimumTrackStyle]} />
+        {this._renderMarkers()}
         <Animated.View
           onLayout={this._measureThumb}
           renderToHardwareTextureAndroid={true}
@@ -291,6 +328,7 @@ export default class Slider extends PureComponent {
           renderToHardwareTextureAndroid={true}
           style={[defaultStyles.touchArea, touchOverflowStyle]}
           {...this._panResponder.panHandlers}>
+          {debugTouchArea === true && numOfMarkers > 1 && this._renderDebugMarkersTouchRect(numOfMarkers)}
           {debugTouchArea === true && this._renderDebugThumbTouchRect(thumbLeft)}
         </View>
       </View>
@@ -314,7 +352,18 @@ export default class Slider extends PureComponent {
 
   _handleStartShouldSetPanResponder = (e: Object, /*gestureState: Object*/): boolean => {
     // Should we become active when the user presses down on the thumb?
-    return this._thumbHitTest(e);
+    const thumbTouched = this._thumbHitTest(e);
+    if (!thumbTouched && this.props.numOfMarkers > 1) {
+      const markersHitTest = this._markersHitTest(e);
+
+      const selectedMarker = markersHitTest.indexOf(true)
+
+      if (selectedMarker > -1 ) {
+        this._slideToClosest(selectedMarker)
+        this.props.onMarkerPress(selectedMarker)
+      }
+    }
+    return thumbTouched
   };
 
   _handleMoveShouldSetPanResponder(/*e: Object, gestureState: Object*/): boolean {
@@ -322,7 +371,7 @@ export default class Slider extends PureComponent {
     return false;
   };
 
-  _handlePanResponderGrant = (/*e: Object, gestureState: Object*/) => {
+  _handlePanResponderGrant = (e: Object/*, gestureState: Object*/) => {
     this._previousLeft = this._getThumbLeft(this._getCurrentValue());
     this._fireChangeEvent('onSlidingStart');
   };
@@ -348,6 +397,10 @@ export default class Slider extends PureComponent {
 
     this._setCurrentValue(this._getValue(gestureState));
     this._fireChangeEvent('onSlidingComplete');
+
+    if (this.props.numOfMarkers > 1) {
+      this._slideToClosest()
+    }
   };
 
   _measureContainer = (x: Object) => {
@@ -384,13 +437,18 @@ export default class Slider extends PureComponent {
   };
 
   _getRatio = (value: number) => {
-    return (value - this.props.minimumValue) / (this.props.maximumValue - this.props.minimumValue);
+    return (value - this.state.minimumValue) / (this.state.maximumValue - this.state.minimumValue);
   };
 
   _getThumbLeft = (value: number) => {
     var ratio = this._getRatio(value);
     return ratio * (this.state.containerSize.width - this.state.thumbSize.width);
   };
+
+  _getMarkerLeft = (i: number) => {
+    var ratio = i / (this.props.numOfMarkers - 1)
+    return ratio * (this.state.containerSize.width - this.state.thumbSize.width);
+  }
 
   _getValue = (gestureState: Object) => {
     var length = this.state.containerSize.width - this.state.thumbSize.width;
@@ -399,15 +457,15 @@ export default class Slider extends PureComponent {
     var ratio = thumbLeft / length;
 
     if (this.props.step) {
-      return Math.max(this.props.minimumValue,
-        Math.min(this.props.maximumValue,
-          this.props.minimumValue + Math.round(ratio * (this.props.maximumValue - this.props.minimumValue) / this.props.step) * this.props.step
+      return Math.max(this.state.minimumValue,
+        Math.min(this.state.maximumValue,
+          this.state.minimumValue + Math.round(ratio * (this.state.maximumValue - this.state.minimumValue) / this.props.step) * this.props.step
         )
       );
     } else {
-      return Math.max(this.props.minimumValue,
-        Math.min(this.props.maximumValue,
-          ratio * (this.props.maximumValue - this.props.minimumValue) + this.props.minimumValue
+      return Math.max(this.state.minimumValue,
+        Math.min(this.state.maximumValue,
+          ratio * (this.state.maximumValue - this.state.minimumValue) + this.state.minimumValue
         )
       );
     }
@@ -438,6 +496,23 @@ export default class Slider extends PureComponent {
       this.props[event](this._getCurrentValue());
     }
   };
+
+  _slideToClosest = (value) => {
+    const val = value !== undefined ? value : this._getCurrentValue()
+    const roundedValue = Math.round(val)
+    console.log('_slideToClosest ', roundedValue)
+
+    if (this.props.animateTransitions) {
+      this._setCurrentValueAnimated(roundedValue);
+    }
+    else {
+      this._setCurrentValue(roundedValue);
+    }
+
+    if (this.props.onMarkerChange) {
+      this.props.onMarkerChange(roundedValue)
+    }
+  }
 
   _getTouchOverflowSize = () => {
     var state = this.state;
@@ -480,6 +555,15 @@ export default class Slider extends PureComponent {
     return thumbTouchRect.containsPoint(nativeEvent.locationX, nativeEvent.locationY);
   };
 
+  _markersHitTest = (e: Object) => {
+    const nativeEvent = e.nativeEvent;
+    const markersTouchRectArray: Array<any> = this._getMarkersTouchRect();
+
+    return markersTouchRectArray.map((markerTouchRect) => 
+      markerTouchRect.containsPoint(nativeEvent.locationX, nativeEvent.locationY)
+    )
+  };
+
   _getThumbTouchRect = () => {
     var state = this.state;
     var props = this.props;
@@ -487,6 +571,27 @@ export default class Slider extends PureComponent {
 
     return new Rect(
       touchOverflowSize.width / 2 + this._getThumbLeft(this._getCurrentValue()) + (state.thumbSize.width - props.thumbTouchSize.width) / 2,
+      touchOverflowSize.height / 2 + (state.containerSize.height - props.thumbTouchSize.height) / 2,
+      props.thumbTouchSize.width,
+      props.thumbTouchSize.height
+    );
+  };
+
+  _getMarkersTouchRect = () => {
+    const markersRect = []
+    for(const i = 0; i < this.props.numOfMarkers; i++) {
+      markersRect.push(this._getMarkerTouchRect(i))
+    }
+    return markersRect
+  }
+
+  _getMarkerTouchRect = (i: number) => {
+    var state = this.state;
+    var props = this.props;
+    var touchOverflowSize = this._getTouchOverflowSize();
+
+    return new Rect(
+      touchOverflowSize.width / 2 + this._getMarkerLeft(i) + (state.thumbSize.width - props.thumbTouchSize.width) / 2,
       touchOverflowSize.height / 2 + (state.containerSize.height - props.thumbTouchSize.height) / 2,
       props.thumbTouchSize.width,
       props.thumbTouchSize.height
@@ -510,6 +615,29 @@ export default class Slider extends PureComponent {
     );
   };
 
+  _renderDebugMarkersTouchRect = (numOfMarkers: number) => {
+
+    const markers = []
+    for (const i = 0; i < numOfMarkers; i++) {
+      const markerLeft = this._getMarkerLeft(i);
+      var markerTouchRect = this._getThumbTouchRect(i);
+      var positionStyle = {
+        left: markerLeft,
+        top: markerTouchRect.y,
+        width: markerTouchRect.width,
+        height: markerTouchRect.height,
+      };
+      markers.push(
+        <View
+          key={i}
+          style={[defaultStyles.debugMarkerTouchArea, positionStyle]}
+          pointerEvents='none'
+      />
+      )
+    }
+    return markers;
+  };
+
   _renderThumb = () => {
     var {thumbImage, thumbElement} = this.props;
 
@@ -519,6 +647,43 @@ export default class Slider extends PureComponent {
 
     return <Image source={thumbImage} />;
   };
+
+  _renderMarkers = () => {
+    const {numOfMarkers, markerStyle} = this.props
+    if (numOfMarkers < 2) return null
+
+    var {thumbSize} = this.state;
+
+    const outerStyle = {
+      justifyContent: 'center',
+      alignItems: 'center',
+      overflow: 'hidden',
+      width: thumbSize.width,
+      height: thumbSize.height,
+    }
+
+    const markers = []
+    for(const i=0; i<numOfMarkers; i++) {
+      markers.push(
+        <View key={i} style={outerStyle}>
+          <View  style={[defaultStyles.markerStyle, markerStyle]} />
+        </View>
+      )
+    }
+    const containerStyle = {
+      position: 'absolute',
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      left: 0,
+      right: 0,
+    }
+    return (
+      <View style={containerStyle} renderToHardwareTextureAndroid={true}>
+        {markers}
+      </ View >
+
+    )
+  }
 }
 
 var defaultStyles = StyleSheet.create({
@@ -548,5 +713,16 @@ var defaultStyles = StyleSheet.create({
     position: 'absolute',
     backgroundColor: 'green',
     opacity: 0.5,
+  },
+  debugMarkerTouchArea: {
+    position: 'absolute',
+    backgroundColor: 'red',
+    opacity: 0.5,
+  },
+  markerStyle: {
+    width: THUMB_SIZE / 2,
+    height: THUMB_SIZE / 2,
+    borderRadius: THUMB_SIZE / 4,
+    backgroundColor: '#b3b3b3',
   }
 });
