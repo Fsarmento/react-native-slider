@@ -5,6 +5,8 @@
 [![npm licence](http://img.shields.io/npm/l/react-native-slider.svg?style=flat-square)](https://npmjs.org/package/react-native-slider "View this project on npm")
 [![Platform](https://img.shields.io/badge/platform-ios%20%7C%20android-989898.svg?style=flat-square)](https://npmjs.org/package/react-native-slider "View this project on npm")
 
+Forked from jeanregisser/react-native-slider. Added markers over the track and slider with descret values.
+
 A pure JavaScript `<Slider>` component for react-native. This is still very much a work
 in progress, ideas and contributions are very welcome. (forked)
 
