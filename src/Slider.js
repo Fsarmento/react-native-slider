@@ -356,14 +356,14 @@ export default class Slider extends PureComponent {
     if (!thumbTouched && this.props.numOfMarkers > 1) {
       const markersHitTest = this._markersHitTest(e);
 
-      const selectedMarker = markersHitTest.indexOf(true)
+      const selectedMarker = markersHitTest.indexOf(true);
 
       if (selectedMarker > -1 ) {
-        this._slideToClosest(selectedMarker)
-        this.props.onMarkerPress(selectedMarker)
+        this._slideToClosest(selectedMarker);
+        this.props.onMarkerPress && this.props.onMarkerPress(selectedMarker);
       }
     }
-    return thumbTouched
+    return thumbTouched;
   };
 
   _handleMoveShouldSetPanResponder(/*e: Object, gestureState: Object*/): boolean {
