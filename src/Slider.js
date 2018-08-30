@@ -351,6 +351,9 @@ export default class Slider extends PureComponent {
   };
 
   _handleStartShouldSetPanResponder = (e: Object, /*gestureState: Object*/): boolean => {
+    if (this.props.disabled) {
+      return;
+    }
     // Should we become active when the user presses down on the thumb?
     const thumbTouched = this._thumbHitTest(e);
     if (!thumbTouched && this.props.numOfMarkers > 1) {
