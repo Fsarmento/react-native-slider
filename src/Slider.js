@@ -501,19 +501,23 @@ export default class Slider extends PureComponent {
   };
 
   _slideToClosest = (value) => {
-    const val = value !== undefined ? value : this._getCurrentValue()
-    const roundedValue = Math.round(val)
+    const val = value !== undefined ? value : this._getCurrentValue();
+    const roundedValue = Math.round(val);
 
-    if (this.props.onMarkerChange) {
-      this.props.onMarkerChange(roundedValue)
+    if (this.props.value !== roundedValue && this.props.onMarkerChange) {
+      this.props.onMarkerChange(roundedValue);
+    } 
+
+    // ajust back without calling onMarkerChange
+    else if (this.props.value === roundedValue && val !==  roundedValue) {
+      if (this.props.animateTransitions) {
+        this._setCurrentValueAnimated(roundedValue);
+      } else {
+        this._setCurrentValue(roundedValue);
+      }
     }
 
-    // if (this.props.animateTransitions) {
-    //   this._setCurrentValueAnimated(roundedValue);
-    // }
-    // else {
-    //   this._setCurrentValue(roundedValue);
-    // }
+
   }
 
   _getTouchOverflowSize = () => {
